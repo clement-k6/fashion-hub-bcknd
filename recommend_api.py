@@ -1,9 +1,11 @@
 import json
 import pandas as pd
+import numpy as np
 from fastapi import FastAPI, Request
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from fastapi.middleware.cors import CORSMiddleware
+import gzip
 import math
 
 app = FastAPI()
@@ -19,11 +21,11 @@ app.add_middleware(
 
 # Load data
 df = pd.read_csv('dataset/myntra_products_catalog.csv')
-with open('dataset/product_embeddings.json', 'r') as f:
+with gzip.open('dataset/product_embeddings.json.gz', 'rt', encoding='utf-8') as f:
     product_embeddings = json.load(f)
 
 # Prepare embeddings matrix and id mapping
-emb_matrix = [item['embedding'] for item in product_embeddings]
+emb_matrix = np.array([item['embedding'] for item in product_embeddings], dtype=np.float32)
 product_ids = [item['ProductID'] for item in product_embeddings]
 
 # Load model
@@ -63,11 +65,10 @@ async def recommend(request: Request):
             continue
         prod_info['similarity'] = sim
         prod_info = clean_dict(prod_info)
-        # Optionally, only return the fields you want:
         result = {
             "ProductID": prod_info.get("ProductID", ""),
             "ProductName": prod_info.get("ProductName", ""),
-            "Price": prod_info.get("Price", ""),
+            "Price": prod_info.get("Price", 0.0),
             "ImageURL": prod_info.get("ImageURL", ""),
             "ProductURL": f"/product/{prod_info.get('ProductID', '')}",
             "similarity": sim
