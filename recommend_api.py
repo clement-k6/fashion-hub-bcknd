@@ -13,14 +13,13 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or specify your frontend's URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load data
-df = pd.read_csv('dataset/myntra_products_catalog.csv')
+# Load embeddings
 with gzip.open('dataset/product_embeddings.json.gz', 'rt', encoding='utf-8') as f:
     product_embeddings = json.load(f)
 
@@ -29,7 +28,17 @@ emb_matrix = np.array([item['embedding'] for item in product_embeddings], dtype=
 product_ids = [item['ProductID'] for item in product_embeddings]
 
 # Load model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+
+# Stream CSV to reduce memory usage
+def load_product_info(prod_id):
+    """Load product info for a specific ProductID from CSV."""
+    reader = pd.read_csv('dataset/myntra_products_catalog.csv', chunksize=1000)
+    for chunk in reader:
+        match = chunk[chunk['ProductID'] == prod_id]
+        if not match.empty:
+            return match.iloc[0].to_dict()
+    return {}
 
 def clean_dict(d):
     """Replace NaN/None in dict values with empty string or 0."""
@@ -59,7 +68,9 @@ async def recommend(request: Request):
     results = []
     for idx in top_indices:
         prod_id = product_ids[idx]
-        prod_info = df[df['ProductID'] == prod_id].iloc[0].to_dict()
+        prod_info = load_product_info(prod_id)
+        if not prod_info:
+            continue
         sim = float(sims[idx])
         if math.isnan(sim):
             continue
