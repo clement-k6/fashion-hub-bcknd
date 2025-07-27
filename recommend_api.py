@@ -1,11 +1,9 @@
 import json
 import pandas as pd
-import numpy as np
 from fastapi import FastAPI, Request
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from fastapi.middleware.cors import CORSMiddleware
-import gzip
 import math
 
 app = FastAPI()
@@ -13,32 +11,23 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Or specify your frontend's URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load embeddings
-with gzip.open('dataset/product_embeddings.json.gz', 'rt', encoding='utf-8') as f:
+# Load data
+df = pd.read_csv('dataset/myntra_products_catalog.csv')
+with open('dataset/product_embeddings.json', 'r') as f:
     product_embeddings = json.load(f)
 
 # Prepare embeddings matrix and id mapping
-emb_matrix = np.array([item['embedding'] for item in product_embeddings], dtype=np.float32)
+emb_matrix = [item['embedding'] for item in product_embeddings]
 product_ids = [item['ProductID'] for item in product_embeddings]
 
 # Load model
-model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
-
-# Stream CSV to reduce memory usage
-def load_product_info(prod_id):
-    """Load product info for a specific ProductID from CSV."""
-    reader = pd.read_csv('dataset/myntra_products_catalog.csv', chunksize=1000)
-    for chunk in reader:
-        match = chunk[chunk['ProductID'] == prod_id]
-        if not match.empty:
-            return match.iloc[0].to_dict()
-    return {}
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def clean_dict(d):
     """Replace NaN/None in dict values with empty string or 0."""
@@ -68,18 +57,17 @@ async def recommend(request: Request):
     results = []
     for idx in top_indices:
         prod_id = product_ids[idx]
-        prod_info = load_product_info(prod_id)
-        if not prod_info:
-            continue
+        prod_info = df[df['ProductID'] == prod_id].iloc[0].to_dict()
         sim = float(sims[idx])
         if math.isnan(sim):
             continue
         prod_info['similarity'] = sim
         prod_info = clean_dict(prod_info)
+        # Optionally, only return the fields you want:
         result = {
             "ProductID": prod_info.get("ProductID", ""),
             "ProductName": prod_info.get("ProductName", ""),
-            "Price": prod_info.get("Price", 0.0),
+            "Price": prod_info.get("Price", ""),
             "ImageURL": prod_info.get("ImageURL", ""),
             "ProductURL": f"/product/{prod_info.get('ProductID', '')}",
             "similarity": sim
